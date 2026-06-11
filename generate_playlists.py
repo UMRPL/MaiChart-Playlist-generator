@@ -43,12 +43,12 @@ for root, dirs, files in os.walk(ROOT_FOLDER):
 
             h = md5_base64(fullpath)
 
-            # Only add to version playlist if genre is not the excluded genre
-            if genre != EXCLUDED_GENRE:
+            # Only add to version and genre playlists if genre is the excluded genre
+            if genre == EXCLUDED_GENRE:
+                playlists_by_genre.setdefault(genre, []).append(h)
+            else:
                 playlists_by_version.setdefault(version, []).append(h)
-            
-            # Always add to genre playlist
-            playlists_by_genre.setdefault(genre, []).append(h)
+                playlists_by_genre.setdefault(genre, []).append(h)
 
 
 # save version playlists

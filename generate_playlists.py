@@ -4,6 +4,7 @@ import os
 import json
 
 ROOT_FOLDER = "."
+EXCLUDED_GENRE = "宴会場"
 
 
 def md5_base64(filepath):
@@ -42,7 +43,11 @@ for root, dirs, files in os.walk(ROOT_FOLDER):
 
             h = md5_base64(fullpath)
 
-            playlists_by_version.setdefault(version, []).append(h)
+            # Only add to version playlist if genre is not the excluded genre
+            if genre != EXCLUDED_GENRE:
+                playlists_by_version.setdefault(version, []).append(h)
+            
+            # Always add to genre playlist
             playlists_by_genre.setdefault(genre, []).append(h)
 
 

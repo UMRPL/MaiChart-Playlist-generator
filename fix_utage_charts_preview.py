@@ -5,11 +5,11 @@ ROOT_FOLDER = "."
 
 def find_utage_charts():
     """
-    Find charts with "宴" in the title and list them before making changes
+    Find charts with "[宴]" at the end of the title and list them before making changes
     """
     utage_charts = []
     
-    print("Scanning for maidata.txt files with 宴 in title...\n")
+    print("Scanning for maidata.txt files with [宴] at end of title...\n")
     
     for root, dirs, files in os.walk(ROOT_FOLDER):
         for file in files:
@@ -20,7 +20,7 @@ def find_utage_charts():
                 with open(fullpath, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
                 
-                # Check if title contains 宴
+                # Check if title ends with [宴]
                 title = None
                 lv_2_value = None
                 lv_3_value = None
@@ -42,7 +42,7 @@ def find_utage_charts():
                         if match and match.group(1).strip():
                             has_lv_7 = True
                 
-                if title and "宴" in title:
+                if title and title.endswith("[宴]"):
                     value_to_copy = lv_2_value or lv_3_value
                     
                     if value_to_copy:
@@ -66,10 +66,10 @@ def main():
     utage_charts = find_utage_charts()
     
     if not utage_charts:
-        print("No charts with 宴 in title found.\n")
+        print("No charts with [宴] at end of title found.\n")
         return
     
-    print(f"Found {len(utage_charts)} chart(s) with 宴 in title:\n")
+    print(f"Found {len(utage_charts)} chart(s) with [宴] at end of title:\n")
     print("-" * 80)
     
     for i, chart in enumerate(utage_charts, 1):

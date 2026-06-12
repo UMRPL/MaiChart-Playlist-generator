@@ -2,6 +2,7 @@ import hashlib
 import base64
 import os
 import json
+import re
 
 ROOT_FOLDER = "."
 EXCLUDED_GENRE = "宴会場"
@@ -15,6 +16,7 @@ def md5_base64(filepath):
 def extract_meta(filepath):
     genre = None
     version = None
+    levels = []
 
     with open(filepath, 'r', encoding='utf-8') as f:
         for line in f:
@@ -22,23 +24,51 @@ def extract_meta(filepath):
                 genre = line.strip().split("=", 1)[1]
             elif line.startswith("&version="):
                 version = line.strip().split("=", 1)[1]
+            elif line.startswith("&lv_"):
+                match = re.match(r"&lv_(\d)=(.+)", line.strip())
+                if match:
+                    level_index = int(match.group(1))
+                    level_value = match.group(2).strip()
+                    if level_value:  # Only if level is not empty
+                        levels.append((level_index, level_value))
 
             if genre and version:
                 break
 
-    return genre, version
+    return genre, version, levels
+
+
+def normalize_level(level_str):
+    """Convert level string to normalized format (e.g., '13.8' -> '13+', '14.0' -> '14')"""
+    try:
+        level_float = float(level_str)
+        level_int = int(level_float)
+        level_decimal = level_float - level_int
+        
+        # If decimal part is >= 0.7, it's the next level +
+        if level_decimal >= 0.7:
+            return f"{level_int}+"
+        else:
+            return str(level_int)
+    except ValueError:
+        return None
 
 
 playlists_by_version = {}
 playlists_by_genre = {}
+playlists_by_level = {}
 
 for root, dirs, files in os.walk(ROOT_FOLDER):
     for file in files:
         if file == "maidata.txt":
             fullpath = os.path.join(root, file)
 
-            genre, version = extract_meta(fullpath)
+            genre, version, levels = extract_meta(fullpath)
             if not genre or not version:
+                continue
+
+            # Skip if has level 7 (Utage)
+            if any(level_index == 7 for level_index, _ in levels):
                 continue
 
             h = md5_base64(fullpath)
@@ -49,6 +79,12 @@ for root, dirs, files in os.walk(ROOT_FOLDER):
             else:
                 playlists_by_version.setdefault(version, []).append(h)
                 playlists_by_genre.setdefault(genre, []).append(h)
+
+            # Add to level playlists for all non-empty levels
+            for level_index, level_value in levels:
+                normalized_level = normalize_level(level_value)
+                if normalized_level:
+                    playlists_by_level.setdefault(normalized_level, []).append(h)
 
 
 # save version playlists
@@ -66,6 +102,16 @@ for genre, hashes in playlists_by_genre.items():
     with open(f"genre_{genre}.json", "w", encoding="utf-8") as f:
         json.dump({
             "Name": genre,
+            "SongHashs": sorted(set(hashes)),
+            "IsPlayList": True
+        }, f, indent=2, ensure_ascii=False)
+
+
+# save level playlists
+for level, hashes in sorted(playlists_by_level.items(), key=lambda x: (int(x[0].rstrip('+')), x[0].endswith('+'))):
+    with open(f"level_{level}.json", "w", encoding="utf-8") as f:
+        json.dump({
+            "Name": f"Level {level}",
             "SongHashs": sorted(set(hashes)),
             "IsPlayList": True
         }, f, indent=2, ensure_ascii=False)

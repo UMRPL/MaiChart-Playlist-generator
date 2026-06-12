@@ -89,12 +89,13 @@ main{padding:var(--space-6);max-width:1400px;margin-inline:auto;width:100%}
 .diff-badges{position:absolute;bottom:var(--space-2);left:var(--space-2);display:flex;gap:4px;flex-wrap:wrap}
 .diff-badge{padding:2px 6px;border-radius:var(--radius-sm);font-size:.65rem;font-weight:700;
   letter-spacing:.02em;backdrop-filter:blur(8px)}
-.diff-1{background:rgba(159,221,143,.88);color:#1a3d10}
-.diff-2{background:rgba(251,205,112,.88);color:#4a2e00}
-.diff-3{background:rgba(255,109,109,.88);color:#4a0000}
-.diff-4{background:rgba(200,120,255,.88);color:#2a004a}
-.diff-5{background:rgba(255,255,255,.88);color:#222}
-.diff-6{background:rgba(255,180,80,.88);color:#3a1800}
+/* lv_2=Basic, lv_3=Advanced, lv_4=Expert, lv_5=Master, lv_6=Re:Master, lv_7=Utage */
+.diff-2{background:rgba(159,221,143,.88);color:#1a3d10}
+.diff-3{background:rgba(251,205,112,.88);color:#4a2e00}
+.diff-4{background:rgba(255,109,109,.88);color:#4a0000}
+.diff-5{background:rgba(200,120,255,.88);color:#2a004a}
+.diff-6{background:rgba(255,255,255,.88);color:#222}
+.diff-7{background:rgba(255,180,80,.88);color:#3a1800}
 .card-body{padding:var(--space-3) var(--space-4)}
 .card-title{font-size:var(--text-sm);font-weight:600;margin-bottom:2px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -134,8 +135,8 @@ main{padding:var(--space-6);max-width:1400px;margin-inline:auto;width:100%}
 .diff-table tr:last-child td{border-bottom:none}
 .diff-name{display:flex;align-items:center;gap:var(--space-2)}
 .diff-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
-.dot-1{background:#9fdd8f}.dot-2{background:#fbcd70}.dot-3{background:#ff6d6d}
-.dot-4{background:#c878ff}.dot-5{background:#e8e8e8}.dot-6{background:#ffb450}
+.dot-2{background:#9fdd8f}.dot-3{background:#fbcd70}.dot-4{background:#ff6d6d}
+.dot-5{background:#c878ff}.dot-6{background:#e8e8e8}.dot-7{background:#ffb450}
 .lv-display{font-weight:700;font-size:var(--text-base)}
 .notes-section{background:var(--color-surface-2);border-radius:var(--radius-lg);
   padding:var(--space-4);font-size:var(--text-xs);font-family:monospace;
@@ -265,7 +266,6 @@ document.getElementById('playlistInput').addEventListener('change', async e => {
   filterByPlaylist(await file.text());
 });
 
-// Convert File to base64 — persists across page reloads, works without blob: URLs
 function fileToBase64(file) {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -275,20 +275,37 @@ function fileToBase64(file) {
   });
 }
 
+// Diff slot mapping:
+// lv_1 = unused (always empty, skipped)
+// lv_2 = Basic
+// lv_3 = Advanced
+// lv_4 = Expert
+// lv_5 = Master
+// lv_6 = Re:Master
+// lv_7 = Utage (宴)
+const DIFF_NAMES = {
+  2: 'Basic',
+  3: 'Advanced',
+  4: 'Expert',
+  5: 'Master',
+  6: 'Re:Master',
+  7: 'Utage'
+};
+
 function parseMaildata(text) {
   const get = key => {
     const m = text.match(new RegExp('&' + key + '=([^\\n\\r]*)'));
     return m ? m[1].trim() : '';
   };
-  const diffNames = ['', 'Basic', 'Advanced', 'Expert', 'Master', 'Re:Master', 'Utage'];
   const diffs = [];
-  for (let i = 1; i <= 6; i++) {
+  // Start from slot 2, skip slot 1 (always unused)
+  for (let i = 2; i <= 7; i++) {
     const lv = get('lv_' + i);
     if (lv && lv !== '') {
       const inoteMatch = text.match(new RegExp('&inote_' + i + '=([\\s\\S]*?)(?=\\n&[a-z_]|$)'));
       diffs.push({
         index: i,
-        name: diffNames[i] || 'Diff ' + i,
+        name: DIFF_NAMES[i] || 'Diff ' + i,
         level: lv,
         designer: get('des_' + i) || '-',
         notes: inoteMatch ? inoteMatch[1].trim() : ''
@@ -333,7 +350,6 @@ async function handleFiles(files) {
     const text = await entry.maidata.text();
     const parsed = parseMaildata(text);
     if (!parsed.title) continue;
-    // Use base64 instead of blob: URL — base64 data URLs are self-contained and survive page reloads
     let jacketBase64 = null;
     if (entry.jacket) jacketBase64 = await fileToBase64(entry.jacket);
     charts.push({ ...parsed, jacketBase64, dir });
@@ -344,12 +360,10 @@ async function handleFiles(files) {
   allCharts = charts;
   filteredCharts = [...charts];
 
-  // Save to localStorage — next time user opens the file, session restores automatically
   try {
     localStorage.setItem('mmp_charts', JSON.stringify(allCharts));
     localStorage.setItem('mmp_saved_at', new Date().toLocaleString('pl-PL'));
   } catch(e) {
-    // Storage quota exceeded — save metadata only, without jacket images
     try {
       const slim = allCharts.map(c => ({...c, jacketBase64: null}));
       localStorage.setItem('mmp_charts', JSON.stringify(slim));
@@ -420,12 +434,12 @@ function renderUI() {
       </select>
       <select class="filter-select" id="diffFilter" onchange="doSearch()">
         <option value="">Wszystkie trudności</option>
-        <option value="1">Basic</option>
-        <option value="2">Advanced</option>
-        <option value="3">Expert</option>
-        <option value="4">Master</option>
-        <option value="5">Re:Master</option>
-        <option value="6">Utage</option>
+        <option value="2">Basic</option>
+        <option value="3">Advanced</option>
+        <option value="4">Expert</option>
+        <option value="5">Master</option>
+        <option value="6">Re:Master</option>
+        <option value="7">Utage</option>
       </select>
       <span class="count-badge" id="countBadge">0 chartów</span>
     </div>
@@ -457,9 +471,6 @@ function updateCount() {
   if (el) el.textContent = filteredCharts.length + ' chart' + (filteredCharts.length !== 1 ? 'ów' : '');
 }
 
-const diffColors = ['','diff-1','diff-2','diff-3','diff-4','diff-5','diff-6'];
-const diffDots   = ['','dot-1','dot-2','dot-3','dot-4','dot-5','dot-6'];
-
 function renderGrid(charts) {
   const grid = document.getElementById('chartsGrid');
   if (!grid) return;
@@ -475,7 +486,7 @@ function renderGrid(charts) {
     return '<div class="chart-card" onclick="openModal(' + idx + ')">' +
       '<div class="jacket-wrap">' + imgTag +
       '<div class="diff-badges">' + c.diffs.map(d =>
-        '<span class="diff-badge ' + diffColors[d.index] + '">' + d.name + ' ' + d.level + '</span>'
+        '<span class="diff-badge diff-' + d.index + '">' + d.name + ' ' + d.level + '</span>'
       ).join('') + '</div></div>' +
       '<div class="card-body">' +
       '<div class="card-title" title="' + escHtml(c.title) + '">' + escHtml(c.title) + '</div>' +
@@ -502,7 +513,7 @@ function openModal(idx) {
     c.version ? '<span class="modal-tag tag-ver">' + escHtml(c.version) + '</span>' : ''
   ].join('');
   document.getElementById('diffTableBody').innerHTML = c.diffs.map(d =>
-    '<tr><td><div class="diff-name"><span class="diff-dot ' + diffDots[d.index] + '"></span>' + d.name + '</div></td>' +
+    '<tr><td><div class="diff-name"><span class="diff-dot dot-' + d.index + '"></span>' + d.name + '</div></td>' +
     '<td><span class="lv-display">' + d.level + '</span></td>' +
     '<td style="color:var(--color-text-muted)">' + escHtml(d.designer) + '</td></tr>'
   ).join('');
@@ -523,7 +534,6 @@ function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// On load — restore last session automatically
 window.addEventListener('DOMContentLoaded', () => {
   if (loadSession()) renderUI();
 });

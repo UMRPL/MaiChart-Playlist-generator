@@ -206,7 +206,7 @@ main{padding:var(--space-6);max-width:1400px;margin-inline:auto;width:100%}
   <div class="drop-zone" id="dropZone">
     <div class="drop-zone-icon">🎮</div>
     <h2>maimai Playlist Previewer</h2>
-    <p>Przeciągnij tutaj folder z chartami (zawierający maidata.txt + jacket.png)<br>lub użyj przycisku powyżej</p>
+    <p>Przeciągnij tutaj folder z chartami (zawierający maidata.txt + bg.png)<br>lub użyj przycisku powyżej</p>
     <button class="btn btn-primary" onclick="document.getElementById('folderInput').click()">
       📂 Wybierz folder
     </button>
@@ -275,14 +275,11 @@ function fileToBase64(file) {
   });
 }
 
-// Diff slot mapping:
-// lv_1 = unused (always empty, skipped)
-// lv_2 = Basic
-// lv_3 = Advanced
-// lv_4 = Expert
-// lv_5 = Master
-// lv_6 = Re:Master
-// lv_7 = Utage (宴)
+// Accepted jacket/cover filenames (priority: first match wins)
+const JACKET_NAMES = ['jacket.png','jacket.jpg','jacket.jpeg','bg.png','bg.jpg','bg.jpeg'];
+
+// Diff slot mapping (lv_1 always unused, skip it):
+// lv_2=Basic, lv_3=Advanced, lv_4=Expert, lv_5=Master, lv_6=Re:Master, lv_7=Utage
 const DIFF_NAMES = {
   2: 'Basic',
   3: 'Advanced',
@@ -298,7 +295,6 @@ function parseMaildata(text) {
     return m ? m[1].trim() : '';
   };
   const diffs = [];
-  // Start from slot 2, skip slot 1 (always unused)
   for (let i = 2; i <= 7; i++) {
     const lv = get('lv_' + i);
     if (lv && lv !== '') {
@@ -332,10 +328,18 @@ async function handleFiles(files) {
   for (const f of fileArr) {
     const parts = f.webkitRelativePath ? f.webkitRelativePath.split('/') : ['root', f.name];
     const dir = parts.slice(0, -1).join('/') || 'root';
-    if (!dirs[dir]) dirs[dir] = {};
+    if (!dirs[dir]) dirs[dir] = { maidata: null, jacket: null, jacketPriority: 999 };
     const fname = parts[parts.length - 1].toLowerCase();
-    if (fname === 'maidata.txt') dirs[dir].maidata = f;
-    else if (['jacket.png','jacket.jpg','jacket.jpeg'].includes(fname)) dirs[dir].jacket = f;
+    if (fname === 'maidata.txt') {
+      dirs[dir].maidata = f;
+    } else {
+      // Pick the jacket file with the highest priority (lowest index in JACKET_NAMES)
+      const pri = JACKET_NAMES.indexOf(fname);
+      if (pri !== -1 && pri < dirs[dir].jacketPriority) {
+        dirs[dir].jacket = f;
+        dirs[dir].jacketPriority = pri;
+      }
+    }
   }
 
   const entries = Object.entries(dirs).filter(([,e]) => e.maidata);

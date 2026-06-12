@@ -25,6 +25,7 @@ def md5_base64(filepath):
 def extract_meta(filepath):
     genre = None
     version = None
+    title = None
     difficulties = {}  # Map difficulty type (2-6) to difficulty value
 
     with open(filepath, 'r', encoding='utf-8') as f:
@@ -33,6 +34,8 @@ def extract_meta(filepath):
                 genre = line.strip().split("=", 1)[1]
             elif line.startswith("&version="):
                 version = line.strip().split("=", 1)[1]
+            elif line.startswith("&title="):
+                title = line.strip().split("=", 1)[1]
             elif line.startswith("&lv_"):
                 match = re.match(r"&lv_(\d)=(.+)", line.strip())
                 if match:
@@ -42,7 +45,7 @@ def extract_meta(filepath):
                     if level_index in DIFFICULTY_NAMES and level_value:
                         difficulties[level_index] = level_value
 
-    return genre, version, difficulties
+    return genre, version, title, difficulties
 
 
 def normalize_level(level_str):
@@ -83,6 +86,9 @@ skipped = 0
 skipped_no_meta = 0
 skipped_has_utage = 0
 
+# Track song difficulty coverage for analysis
+song_data = {}  # hash -> {title, difficulties_present}
+
 # Second pass: process files
 print("Processing files:")
 for root, dirs, files in os.walk(ROOT_FOLDER):
@@ -98,7 +104,7 @@ for root, dirs, files in os.walk(ROOT_FOLDER):
             bar = '█' * filled + '░' * (bar_length - filled)
             print(f'\r[{bar}] {processed}/{total_files}', end='', flush=True)
 
-            genre, version, difficulties = extract_meta(fullpath)
+            genre, version, title, difficulties = extract_meta(fullpath)
             if not genre or not version:
                 skipped += 1
                 skipped_no_meta += 1
@@ -120,6 +126,13 @@ for root, dirs, files in os.walk(ROOT_FOLDER):
                 continue
 
             h = md5_base64(fullpath)
+            
+            # Store song data for analysis
+            difficulties_present = sorted(difficulties.keys())
+            song_data[h] = {
+                'title': title or 'Unknown',
+                'difficulties': difficulties_present
+            }
 
             # Only add to version and genre playlists if genre is NOT the excluded genre
             if genre == EXCLUDED_GENRE:
@@ -212,6 +225,67 @@ if playlists_by_level:
         print(f"  ✓ level_{level}.json ({len(set(hashes))} songs)")
 else:
     print("  (no levels found)")
+
+# Analyze difficulty coverage inconsistencies
+print("\nAnalyzing difficulty coverage...")
+inconsistent_songs = {
+    'has_basic_or_advanced_missing_expert_or_master': [],
+    'has_expert_or_master_missing_basic': [],
+    'other_gaps': []
+}
+
+for h, data in song_data.items():
+    diffs = set(data['difficulties'])
+    title = data['title']
+    
+    # Check for inconsistencies
+    has_low = 2 in diffs or 3 in diffs  # Basic or Advanced
+    has_high = 4 in diffs or 5 in diffs  # Expert or Master
+    has_basic = 2 in diffs
+    has_expert = 4 in diffs
+    
+    if has_low and not has_high:
+        # Has Basic/Advanced but missing Expert/Master
+        inconsistent_songs['has_basic_or_advanced_missing_expert_or_master'].append({
+            'title': title,
+            'difficulties': [DIFFICULTY_NAMES[d] for d in sorted(diffs)]
+        })
+    elif has_high and not has_basic:
+        # Has Expert/Master but missing Basic
+        inconsistent_songs['has_expert_or_master_missing_basic'].append({
+            'title': title,
+            'difficulties': [DIFFICULTY_NAMES[d] for d in sorted(diffs)]
+        })
+
+# Generate difficulty coverage analysis report
+print("Generating difficulty coverage analysis report...")
+with open("difficulty_coverage_analysis.txt", "w", encoding="utf-8") as f:
+    f.write("=== DIFFICULTY COVERAGE ANALYSIS ===\n\n")
+    
+    if inconsistent_songs['has_basic_or_advanced_missing_expert_or_master']:
+        f.write(f"SONGS WITH BASIC/ADVANCED BUT MISSING EXPERT/MASTER ({len(inconsistent_songs['has_basic_or_advanced_missing_expert_or_master'])}):\n")
+        f.write("-" * 80 + "\n")
+        for song in sorted(inconsistent_songs['has_basic_or_advanced_missing_expert_or_master'], key=lambda x: x['title']):
+            f.write(f"{song['title']}\n")
+            f.write(f"  Has: {', '.join(song['difficulties'])}\n\n")
+        f.write("\n")
+    
+    if inconsistent_songs['has_expert_or_master_missing_basic']:
+        f.write(f"SONGS WITH EXPERT/MASTER BUT MISSING BASIC ({len(inconsistent_songs['has_expert_or_master_missing_basic'])}):\n")
+        f.write("-" * 80 + "\n")
+        for song in sorted(inconsistent_songs['has_expert_or_master_missing_basic'], key=lambda x: x['title']):
+            f.write(f"{song['title']}\n")
+            f.write(f"  Has: {', '.join(song['difficulties'])}\n\n")
+        f.write("\n")
+    
+    if not inconsistent_songs['has_basic_or_advanced_missing_expert_or_master'] and not inconsistent_songs['has_expert_or_master_missing_basic']:
+        f.write("No difficulty coverage inconsistencies found!\n")
+
+print(f"  ✓ difficulty_coverage_analysis.txt")
+if inconsistent_songs['has_basic_or_advanced_missing_expert_or_master']:
+    print(f"    - {len(inconsistent_songs['has_basic_or_advanced_missing_expert_or_master'])} songs with Basic/Advanced missing Expert/Master")
+if inconsistent_songs['has_expert_or_master_missing_basic']:
+    print(f"    - {len(inconsistent_songs['has_expert_or_master_missing_basic'])} songs with Expert/Master missing Basic")
 
 print("\n✓ DONE")
 input("Press Enter to exit...")

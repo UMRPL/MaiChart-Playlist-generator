@@ -69,6 +69,8 @@ playlists_by_genre = {}
 playlists_by_level = {}
 processed = 0
 skipped = 0
+skipped_no_meta = 0
+skipped_utage = 0
 
 # Second pass: process files
 print("Processing files:")
@@ -88,11 +90,13 @@ for root, dirs, files in os.walk(ROOT_FOLDER):
             genre, version, levels = extract_meta(fullpath)
             if not genre or not version:
                 skipped += 1
+                skipped_no_meta += 1
                 continue
 
             # Skip if has level 7 (Utage)
             if any(level_index == 7 for level_index, _ in levels):
                 skipped += 1
+                skipped_utage += 1
                 continue
 
             h = md5_base64(fullpath)
@@ -110,7 +114,19 @@ for root, dirs, files in os.walk(ROOT_FOLDER):
                 if normalized_level:
                     playlists_by_level.setdefault(normalized_level, []).append(h)
 
-print(f'\n\nProcessing complete! (Skipped: {skipped})\n')
+print(f'\n\nProcessing complete!')
+print(f"  Processed: {processed}")
+print(f"  Skipped: {skipped}")
+print(f"    - Missing metadata: {skipped_no_meta}")
+print(f"    - Has Utage (level 7): {skipped_utage}")
+print(f"\nPlaylists to generate:")
+print(f"  Version playlists: {len(playlists_by_version)}")
+print(f"  Genre playlists: {len(playlists_by_genre)}")
+print(f"  Level playlists: {len(playlists_by_level)}")
+if playlists_by_level:
+    print(f"    Levels: {', '.join(sorted(playlists_by_level.keys(), key=lambda x: (int(x.rstrip('+')), x.endswith('+'))))}\n")
+else:
+    print(f"    (none generated)\n")
 
 # save version playlists
 print("Generating version playlists...")
@@ -138,13 +154,17 @@ for genre, hashes in playlists_by_genre.items():
 
 # save level playlists
 print("\nGenerating level playlists...")
-for level, hashes in sorted(playlists_by_level.items(), key=lambda x: (int(x[0].rstrip('+')), x[0].endswith('+'))):
-    with open(f"level_{level}.json", "w", encoding="utf-8") as f:
-        json.dump({
-            "Name": f"Level {level}",
-            "SongHashs": sorted(set(hashes)),
-            "IsPlayList": True
-        }, f, indent=2, ensure_ascii=False)
-    print(f"  ✓ level_{level}.json ({len(set(hashes))} songs)")
+if playlists_by_level:
+    for level, hashes in sorted(playlists_by_level.items(), key=lambda x: (int(x[0].rstrip('+')), x[0].endswith('+'))):
+        with open(f"level_{level}.json", "w", encoding="utf-8") as f:
+            json.dump({
+                "Name": f"Level {level}",
+                "SongHashs": sorted(set(hashes)),
+                "IsPlayList": True
+            }, f, indent=2, ensure_ascii=False)
+        print(f"  ✓ level_{level}.json ({len(set(hashes))} songs)")
+else:
+    print("  (no levels found)")
 
 print("\n✓ DONE")
+input("Press Enter to exit...")

@@ -32,9 +32,6 @@ def extract_meta(filepath):
                     if level_value:  # Only if level is not empty
                         levels.append((level_index, level_value))
 
-            if genre and version:
-                break
-
     return genre, version, levels
 
 

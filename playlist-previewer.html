@@ -71,7 +71,6 @@ main{padding:var(--sp6);max-width:1600px;margin-inline:auto;width:100%}
 
 /* ── TOOLBAR ── */
 .toolbar{display:flex;gap:var(--sp3);align-items:center;margin-bottom:var(--sp4);flex-wrap:wrap}
-.toolbar-row2{display:flex;gap:var(--sp3);align-items:center;margin-bottom:var(--sp4);flex-wrap:wrap}
 .search-box{flex:1;min-width:180px;position:relative}
 .search-box input{width:100%;padding:.45rem 1rem .45rem 2.25rem;border-radius:var(--radius-md);
   border:1px solid var(--color-border);background:var(--color-surface);color:var(--color-text);
@@ -328,15 +327,6 @@ document.getElementById('playlistInput').addEventListener('change', async e => {
 // ─────────────────────────────────────────────
 // MD5 (for playlist export — matching generate_playlists.py)
 // ─────────────────────────────────────────────
-async function md5Base64(text) {
-  // We hash the UTF-8 bytes of the file content, then base64-encode
-  const enc = new TextEncoder();
-  const data = enc.encode(text);
-  const hashBuf = await crypto.subtle.digest('MD5', data).catch(() => null);
-  if (!hashBuf) return null; // MD5 not available (HTTPS only workaround below)
-  return btoa(String.fromCharCode(...new Uint8Array(hashBuf)));
-}
-// Polyfill MD5 via SparkMD5 loaded lazily
 let _md5Loaded = false;
 async function ensureMD5() {
   if (_md5Loaded) return;
@@ -351,7 +341,6 @@ async function ensureMD5() {
 async function computeHash(rawText) {
   await ensureMD5();
   const md5hex = SparkMD5.hash(rawText);
-  // Convert hex to bytes then base64 (matching Python's hashlib.md5 + base64.b64encode)
   const bytes = new Uint8Array(md5hex.match(/../g).map(h => parseInt(h, 16)));
   return btoa(String.fromCharCode(...bytes));
 }
@@ -441,7 +430,6 @@ async function handleFiles(files) {
     const rawText = await fileToText(entry.maidata);
     const parsed = parseMaildata(rawText);
     if (!parsed.title) continue;
-    // Compute hash matching generate_playlists.py (md5 of raw file bytes, base64)
     const hash = await computeHash(rawText);
     let jacketBase64 = null;
     if (entry.jacket) jacketBase64 = await fileToBase64(entry.jacket);
@@ -493,12 +481,37 @@ function filterByPlaylist(text, fname='') {
       filtered = allCharts.filter(c => idSet.has(c.hash));
     } catch(e) { alert('Błąd parsowania JSON playlisty'); return; }
   } else {
-    // plain txt
     const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
     filtered = allCharts.filter(c => lines.some(l => l===c.shortid || l.toLowerCase()===c.title.toLowerCase()));
   }
   renderGrid();
   updateCount();
+}
+
+// ─────────────────────────────────────────────
+// SELECT ALL / DESELECT ALL
+// ─────────────────────────────────────────────
+function toggleSelectAll() {
+  const allFilteredIndices = filtered.map(c => allCharts.indexOf(c));
+  const allSelected = allFilteredIndices.every(i => selected.has(i));
+  if (allSelected) {
+    // deselect all visible
+    allFilteredIndices.forEach(i => selected.delete(i));
+  } else {
+    // select all visible
+    allFilteredIndices.forEach(i => selected.add(i));
+  }
+  renderVisible();
+  updateCount();
+  updateSelectAllBtn();
+}
+
+function updateSelectAllBtn() {
+  const btn = document.getElementById('selectAllBtn');
+  if (!btn || !filtered.length) return;
+  const allFilteredIndices = filtered.map(c => allCharts.indexOf(c));
+  const allSelected = allFilteredIndices.length > 0 && allFilteredIndices.every(i => selected.has(i));
+  btn.textContent = allSelected ? '☐ Odznacz wszystko' : '☑ Zaznacz wszystko';
 }
 
 // ─────────────────────────────────────────────
@@ -512,17 +525,7 @@ function renderUI() {
   document.getElementById('clearBtn').style.display = 'inline-flex';
   document.getElementById('exportBtn').style.display = 'inline-flex';
 
-  // Build level options
-  const allLevels = new Set();
-  allCharts.forEach(c => c.diffs.forEach(d => { if (d.normLevel) allLevels.add(d.normLevel); }));
-  const sortedLevels = [...allLevels].sort((a,b) => {
-    const va = parseInt(a)+( a.endsWith('+')?0.5:0 ), vb = parseInt(b)+(b.endsWith('+')?0.5:0);
-    return va-vb;
-  });
-
-  // Build version options
   const allVersions = [...new Set(allCharts.map(c=>c.version).filter(Boolean))].sort();
-  // Build genre options
   const allGenres = [...new Set(allCharts.map(c=>c.genre).filter(Boolean))].sort();
 
   document.getElementById('mainArea').innerHTML = `
@@ -548,12 +551,9 @@ function renderUI() {
         <option value="6">Re:Master</option>
         <option value="7">Utage</option>
       </select>
-      <select class="fsel" id="levelFilter" onchange="doFilter()">
-        <option value="">Wszystkie poziomy</option>
-        ${sortedLevels.map(l=>`<option value="${escHtml(l)}">${l}</option>`).join('')}
-      </select>
       <span class="count-badge" id="countBadge">0 chartów</span>
       <span class="sel-badge" id="selBadge">0 wybranych</span>
+      <button class="btn btn-ghost btn-sm" id="selectAllBtn" onclick="toggleSelectAll()" style="display:none">☑ Zaznacz wszystko</button>
     </div>
     <div class="vscroll-outer" id="vscrollOuter">
       <div class="vscroll-spacer" id="vscrollSpacer">
@@ -575,14 +575,12 @@ function doFilter() {
   const gen = document.getElementById('genreFilter')?.value||'';
   const ver = document.getElementById('versionFilter')?.value||'';
   const dif = document.getElementById('diffFilter')?.value||'';
-  const lv  = document.getElementById('levelFilter')?.value||'';
 
   filtered = allCharts.filter(c => {
     if (q && !c.title.toLowerCase().includes(q) && !(c.artist||'').toLowerCase().includes(q)) return false;
     if (gen && c.genre !== gen) return false;
     if (ver && c.version !== ver) return false;
     if (dif && !c.diffs.some(d => d.index == dif)) return false;
-    if (lv  && !c.diffs.some(d => d.normLevel === lv && (!dif || d.index == dif))) return false;
     return true;
   });
   renderGrid();
@@ -597,6 +595,9 @@ function updateCount() {
     sb.textContent = selected.size + ' wybranych';
     sb.style.display = selected.size > 0 ? 'inline-flex' : 'none';
   }
+  const sab = document.getElementById('selectAllBtn');
+  if (sab) sab.style.display = filtered.length > 0 ? 'inline-flex' : 'none';
+  updateSelectAllBtn();
 }
 
 // ─────────────────────────────────────────────
@@ -610,7 +611,7 @@ function getCardHeight() {
   const cols = Math.max(1, Math.floor((outerW + CARD_GAP) / (CARD_MIN + CARD_GAP)));
   vsColCount = cols;
   const cardW = (outerW - (cols-1)*CARD_GAP) / cols;
-  return cardW + CARD_BODY_H; // aspect-ratio:1 jacket + fixed body
+  return cardW + CARD_BODY_H;
 }
 
 function renderGrid() {
@@ -748,7 +749,6 @@ async function doExport() {
   const name = document.getElementById('exportName').value.trim() || 'Moja playlista';
   const src = selected.size > 0 ? [...selected].map(i=>allCharts[i]) : filtered;
 
-  // Collect hashes — matching generate_playlists.py: md5(file bytes) base64
   const hashes = src.map(c => c.hash).filter(Boolean);
   const unique = [...new Set(hashes)].sort();
 

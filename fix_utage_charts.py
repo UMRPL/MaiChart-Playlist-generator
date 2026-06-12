@@ -5,12 +5,12 @@ ROOT_FOLDER = "."
 
 def process_utage_charts():
     """
-    Find charts with "宴" in the title and copy their &lv_2 or &lv_3 values to &lv_7
+    Find charts whose title ends with "[宴]" and copy their &lv_2 or &lv_3 values to &lv_7
     """
     processed = 0
     skipped = 0
     
-    print("Scanning for maidata.txt files with 宴 in title...\n")
+    print("Scanning for maidata.txt files with [宴] at end of title...\n")
     
     for root, dirs, files in os.walk(ROOT_FOLDER):
         for file in files:
@@ -22,17 +22,17 @@ def process_utage_charts():
                     content = f.read()
                     lines = content.split('\n')
                 
-                # Check if title contains 宴
+                # Check if title ends with [宴]
                 title = None
                 title_line_idx = None
                 
                 for idx, line in enumerate(lines):
                     if line.startswith("&title="):
-                        title = line.split("=", 1)[1]
+                        title = line.split("=", 1)[1].strip()
                         title_line_idx = idx
                         break
                 
-                if title and "宴" in title:
+                if title and title.endswith("[宴]"):
                     # Find &lv_2 and &lv_3 values
                     lv_2_value = None
                     lv_3_value = None

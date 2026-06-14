@@ -44,7 +44,6 @@ def romanize(text: str) -> str:
     result = kks.convert(text)
     parts = []
     for item in result:
-        # Prefer hepburn romaji; fall back to original if both are empty
         chunk = item.get("hepburn") or item.get("orig") or ""
         parts.append(chunk)
     return "".join(parts)
@@ -52,7 +51,6 @@ def romanize(text: str) -> str:
 def safe_folder_name(text: str, max_len: int = 40) -> str:
     """Romanize text and strip characters not safe for folder names."""
     romanized = romanize(text)
-    # Replace spaces/special chars with underscore, keep alphanumeric + dash
     clean = re.sub(r"[^\w\s\-]", "", romanized, flags=re.ASCII)
     clean = re.sub(r"[\s_]+", "_", clean).strip("_")
     return clean[:max_len] if clean else "unknown"
@@ -86,14 +84,13 @@ def main():
     if not DRY_RUN:
         output_base.mkdir(exist_ok=True)
 
-    print(f"Root folder  : {root}")
-    print(f"Output base  : {output_base}")
-    print(f"Dry run      : {DRY_RUN}")
+    print(f"Root folder   : {root}")
+    print(f"Output base   : {output_base}")
+    print(f"Dry run       : {DRY_RUN}")
     print(f"Include artist: {INCLUDE_ARTIST}")
     print()
 
     # Find all direct children of root that contain maidata.txt
-    # (we look one level deep only, matching how generate_playlists.py works)
     song_folders = []
     for item in sorted(root.iterdir()):
         if item.is_dir() and (item / "maidata.txt").exists():
@@ -101,29 +98,29 @@ def main():
 
     print(f"Found {len(song_folders)} song folder(s) with maidata.txt\n")
 
-    results   = []   # (src, dest, genre, new_name) for report
+    results    = []
     collisions = {}  # dest_str -> count (to handle duplicate romanized names)
 
     for folder in song_folders:
         maidata = folder / "maidata.txt"
         title, artist, genre = extract_meta(str(maidata))
 
-        # Fall back gracefully if metadata is missing
+        original_id = folder.name  # keep the raw folder name (e.g. "0001234") as prefix
+
         title_safe  = safe_folder_name(title  or "unknown_title",  MAX_TITLE_LEN)
         artist_safe = safe_folder_name(artist or "unknown_artist", MAX_ARTIST_LEN)
         genre_safe  = safe_folder_name(genre  or "unknown_genre",  30)
 
-        # Build new folder name
+        # Build new folder name: <original_id>__<title>[__<artist>]
         if INCLUDE_ARTIST:
-            new_name = f"{title_safe}__{artist_safe}"
+            new_name = f"{original_id}__{title_safe}__{artist_safe}"
         else:
-            new_name = title_safe
+            new_name = f"{original_id}__{title_safe}"
 
-        # Destination: output_base / genre_safe / new_name
         genre_dir = output_base / genre_safe
         dest      = genre_dir / new_name
 
-        # Handle name collisions by appending a counter
+        # Collision guard (shouldn't happen since original_id is unique, but just in case)
         dest_key = str(dest)
         if dest_key in collisions:
             collisions[dest_key] += 1
@@ -135,14 +132,13 @@ def main():
 
     # ── Preview / Execute ──────────────────
     print(f"{'DRY RUN — ' if DRY_RUN else ''}Renaming & categorizing {len(results)} folder(s):\n")
-    print(f"  {'SOURCE':<40}  {'GENRE FOLDER':<25}  DEST NAME")
-    print("  " + "-" * 90)
+    print(f"  {'SOURCE':<30}  {'GENRE FOLDER':<25}  DEST NAME")
+    print("  " + "-" * 100)
 
     moved = skipped = errors = 0
 
     for src, dest, genre_safe, new_name, title, artist, genre in results:
-        label_src = src.name[:38]
-        print(f"  {label_src:<40}  {genre_safe:<25}  {dest.name}")
+        print(f"  {src.name:<30}  {genre_safe:<25}  {dest.name}")
 
         if DRY_RUN:
             continue

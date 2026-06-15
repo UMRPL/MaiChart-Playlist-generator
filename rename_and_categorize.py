@@ -19,10 +19,25 @@ English title lookup:
 Zero external dependencies -- uses only Python stdlib + urllib.
 """
 
+# ---------------------------------------------------------
+# Force UTF-8 output FIRST -- before any other import.
+# Without this, Windows cmd/PowerShell (cp1252/cp850) crashes
+# as soon as the script tries to print a Japanese character.
+# ---------------------------------------------------------
+import sys
+import io
+
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+if sys.stderr.encoding and sys.stderr.encoding.lower() != "utf-8":
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
+# ---------------------------------------------------------
+# Remaining imports
+# ---------------------------------------------------------
 import json
 import re
 import shutil
-import sys
 import traceback
 import unicodedata
 import urllib.error
@@ -267,7 +282,9 @@ def print_preview(results, en_hits, en_misses):
     print(f"  {'#':<5}  {'SRC':<30}  {'TAG':<5}  {'GENRE':<25}  DEST")
     print("  " + "-" * 115)
     for i, (src, dest, genre_safe, tag) in enumerate(results, 1):
-        print(f"  {i:<5}  {src.name:<30}  {tag:<5}  {genre_safe:<25}  {dest.name}")
+        # ASCII-safe fallback for dest name in case terminal still can't handle it
+        dest_display = dest.name.encode("ascii", errors="replace").decode("ascii")
+        print(f"  {i:<5}  {src.name:<30}  {tag:<5}  {genre_safe:<25}  {dest_display}")
     print()
     total = en_hits + en_misses
     print(f"  Total : {len(results)} folder(s)")
@@ -346,7 +363,7 @@ def main():
 
 
 # ---------------------------------------------------------
-# ENTRY POINT — catches ALL exceptions so the window never
+# ENTRY POINT -- catches ALL exceptions so the window never
 # closes before you can read the error
 # ---------------------------------------------------------
 

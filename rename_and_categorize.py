@@ -23,6 +23,7 @@ import json
 import re
 import shutil
 import sys
+import traceback
 import unicodedata
 import urllib.error
 import urllib.request
@@ -183,7 +184,7 @@ def safe_name(text: str, max_len: int) -> str:
     text = "".join(cleaned)
     text = re.sub(r"\s+", "_", text)
     text = re.sub(r"_+", "_", text)
-    text = re.sub(r"[.]+$", "").strip(" _.-")
+    text = re.sub(r"[.]+$", "", text).strip(" _.-")
     return text[:max_len] if text else "unknown"
 
 
@@ -207,7 +208,6 @@ def extract_meta(maidata_path: Path):
 # ---------------------------------------------------------
 
 def build_plan(root: Path, output_base: Path, sega_db: dict):
-    """Scan all song folders and return the full rename plan (no files touched)."""
     song_folders = [
         d for d in sorted(root.iterdir())
         if d.is_dir() and (d / "maidata.txt").exists()
@@ -315,12 +315,10 @@ def main():
     print(f"  Output : {output_base}")
     print()
 
-    # Load SEGA DB
     sega_db = {}
     if USE_ENGLISH_TITLES:
         sega_db = load_sega_db(cache_path)
 
-    # Build plan (read-only scan)
     results, en_hits, en_misses = build_plan(root, output_base, sega_db)
 
     if not results:
@@ -328,10 +326,8 @@ def main():
         input("\nPress Enter to exit...")
         return
 
-    # Always show preview first
     print_preview(results, en_hits, en_misses)
 
-    # Ask for confirmation
     print("  Apply changes? All folders will be moved into:", output_base)
     try:
         answer = input("  > [y/N] : ").strip().lower()
@@ -344,11 +340,25 @@ def main():
         input("Press Enter to exit...")
         return
 
-    # Execute
     apply_plan(results)
     print(f"\n  Output folder: {output_base}")
     input("\nPress Enter to exit...")
 
 
+# ---------------------------------------------------------
+# ENTRY POINT — catches ALL exceptions so the window never
+# closes before you can read the error
+# ---------------------------------------------------------
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        print()
+        print("=" * 62)
+        print("  UNHANDLED ERROR -- script crashed")
+        print("=" * 62)
+        print()
+        traceback.print_exc()
+        print()
+        input("Press Enter to exit...")

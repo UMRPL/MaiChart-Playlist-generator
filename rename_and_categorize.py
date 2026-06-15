@@ -6,10 +6,14 @@ sorts them into genre subfolders.
 
 Format: {raw_id}__{title}__{artist}
 
+Workflow:
+  1. Always shows a full preview table first (no files touched)
+  2. Asks: apply changes? [y/N]
+  3. Only moves folders if you confirm
+
 English title lookup:
   - Fetches the official SEGA song list (maimai.sega.jp/data/maimai_songs.json)
-  - If a matching JP title has an ASCII/English equivalent in that dataset,
-    uses it directly.
+  - If a matching JP title has an ASCII/English equivalent, uses it directly.
   - Falls back to built-in kana->romaji for anything not found.
 
 Zero external dependencies -- uses only Python stdlib + urllib.
@@ -18,6 +22,7 @@ Zero external dependencies -- uses only Python stdlib + urllib.
 import json
 import re
 import shutil
+import sys
 import unicodedata
 import urllib.error
 import urllib.request
@@ -33,17 +38,13 @@ ROOT_FOLDER = "."
 # Where sorted output goes  (created automatically)
 OUTPUT_BASE = "songs_sorted"
 
-# Set True to preview without touching any files
-DRY_RUN = False
-
 # Include artist name in folder?
 INCLUDE_ARTIST = True
 
 # Try to fetch English titles from SEGA's official song list
 USE_ENGLISH_TITLES = True
 
-# Local cache file so we don't hit the server every run
-# Delete this file to force a refresh of the song database
+# Local cache file -- delete to force a refresh of the song database
 EN_CACHE_FILE = "sega_songs_cache.json"
 
 # Max chars for each name component
@@ -61,22 +62,16 @@ SEGA_URL = "https://maimai.sega.jp/data/maimai_songs.json"
 
 
 def load_sega_db(cache_path: Path) -> dict:
-    """
-    Returns a dict: normalised_jp_title -> {title, artist}
-    where 'title' is the best available English/romaji title.
-    Uses a local cache to avoid re-fetching every run.
-    Delete the cache file to force a refresh.
-    """
     if cache_path.exists():
         print(f"  Loading EN title cache from {cache_path.name} ...")
         with cache_path.open("r", encoding="utf-8") as f:
             return json.load(f)
 
-    print(f"  Fetching song database from SEGA ...")
+    print("  Fetching song database from SEGA ...")
     try:
         req = urllib.request.Request(
             SEGA_URL,
-            headers={"User-Agent": "Mozilla/5.0 maimai-playlist-tool/1.0"},
+            headers={"User-Agent": "Mozilla/5.0 maimai-playlist-tool/2.0"},
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -90,11 +85,9 @@ def load_sega_db(cache_path: Path) -> dict:
         artist   = song.get("artist", "")
         if not jp_title:
             continue
-        # Normalise key so we can match against maidata.txt &title= values
         key = unicodedata.normalize("NFKC", jp_title).strip()
         db[key] = {"title": jp_title, "artist": artist}
 
-    # Persist cache
     with cache_path.open("w", encoding="utf-8") as f:
         json.dump(db, f, ensure_ascii=False, indent=2)
     print(f"  Cached {len(db)} songs -> {cache_path.name}")
@@ -146,7 +139,7 @@ MONOGRAPHS = {
     "\u3094":"vu",
 }
 
-VOWELS       = set("aeiou")
+VOWELS        = set("aeiou")
 WIN_FORBIDDEN = set('<>:"/\\|?*')
 
 
@@ -159,9 +152,9 @@ def romanize_kana(text: str) -> str:
     out, i, geminate = [], 0, False
     while i < len(text):
         ch = text[i]
-        if ch == "\u3063":  # small tsu (geminate)
+        if ch == "\u3063":
             geminate = True; i += 1; continue
-        if ch == "\u30fc":  # long vowel mark
+        if ch == "\u30fc":
             if out:
                 last = next((c for c in reversed(out[-1]) if c in VOWELS), "")
                 if last: out.append(last)
@@ -190,7 +183,7 @@ def safe_name(text: str, max_len: int) -> str:
     text = "".join(cleaned)
     text = re.sub(r"\s+", "_", text)
     text = re.sub(r"_+", "_", text)
-    text = re.sub(r"[.]+$", "", text).strip(" _.-")
+    text = re.sub(r"[.]+$", "").strip(" _.-")
     return text[:max_len] if text else "unknown"
 
 
@@ -210,37 +203,15 @@ def extract_meta(maidata_path: Path):
 
 
 # ---------------------------------------------------------
-# MAIN
+# PREVIEW TABLE
 # ---------------------------------------------------------
 
-def main():
-    root        = Path(ROOT_FOLDER).resolve()
-    output_base = root / OUTPUT_BASE
-    cache_path  = root / EN_CACHE_FILE
-
-    print("=" * 62)
-    print("  maimai rename & categorize")
-    print("=" * 62)
-    print(f"  Root          : {root}")
-    print(f"  Output        : {output_base}")
-    print(f"  Dry run       : {DRY_RUN}")
-    print(f"  English titles: {USE_ENGLISH_TITLES}")
-    print(f"  Include artist: {INCLUDE_ARTIST}")
-    print()
-
-    sega_db = {}
-    if USE_ENGLISH_TITLES:
-        sega_db = load_sega_db(cache_path)
-        print()
-
-    if not DRY_RUN:
-        output_base.mkdir(exist_ok=True)
-
+def build_plan(root: Path, output_base: Path, sega_db: dict):
+    """Scan all song folders and return the full rename plan (no files touched)."""
     song_folders = [
         d for d in sorted(root.iterdir())
         if d.is_dir() and (d / "maidata.txt").exists()
     ]
-    print(f"Found {len(song_folders)} song folder(s)\n")
 
     results    = []
     collisions = {}
@@ -286,42 +257,96 @@ def main():
         tag = "[EN]" if en_title else "[~] "
         results.append((folder, dest, genre_safe, tag))
 
-    print(f"{'DRY RUN -- ' if DRY_RUN else ''}Processing {len(results)} folder(s):\n")
-    print("  [EN] = English title from SEGA DB   [~] = kana romanized fallback\n")
-    print(f"  {'SRC':<30}  {'TAG':<5}  {'GENRE':<25}  DEST")
-    print("  " + "-" * 108)
+    return results, en_hits, en_misses
 
+
+def print_preview(results, en_hits, en_misses):
+    print()
+    print("  [EN] = English title from SEGA DB   [~] = kana romanized fallback")
+    print()
+    print(f"  {'#':<5}  {'SRC':<30}  {'TAG':<5}  {'GENRE':<25}  DEST")
+    print("  " + "-" * 115)
+    for i, (src, dest, genre_safe, tag) in enumerate(results, 1):
+        print(f"  {i:<5}  {src.name:<30}  {tag:<5}  {genre_safe:<25}  {dest.name}")
+    print()
+    total = en_hits + en_misses
+    print(f"  Total : {len(results)} folder(s)")
+    if total:
+        print(f"  Titles: {en_hits}/{total} matched in SEGA DB  |  {en_misses} romanized locally")
+
+
+# ---------------------------------------------------------
+# APPLY
+# ---------------------------------------------------------
+
+def apply_plan(results):
     moved = skipped = errors = 0
-
+    print()
     for src, dest, genre_safe, tag in results:
-        print(f"  {src.name:<30}  {tag:<5}  {genre_safe:<25}  {dest.name}")
-        if DRY_RUN:
-            continue
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
             if dest.exists():
-                print(f"    ! SKIP -- already exists: {dest.name}")
+                print(f"  ! SKIP  {src.name}  ->  already exists: {dest.name}")
                 skipped += 1
                 continue
             shutil.move(str(src), str(dest))
+            print(f"  OK  {src.name}  ->  {genre_safe}/{dest.name}")
             moved += 1
         except Exception as e:
-            print(f"    X ERROR: {e}")
+            print(f"  X ERROR  {src.name}: {e}")
             errors += 1
-
     print()
+    print(f"  Done!  Moved: {moved}  |  Skipped: {skipped}  |  Errors: {errors}")
+
+
+# ---------------------------------------------------------
+# MAIN
+# ---------------------------------------------------------
+
+def main():
+    root        = Path(ROOT_FOLDER).resolve()
+    output_base = root / OUTPUT_BASE
+    cache_path  = root / EN_CACHE_FILE
+
+    print("=" * 62)
+    print("  maimai rename & categorize")
+    print("=" * 62)
+    print(f"  Root   : {root}")
+    print(f"  Output : {output_base}")
+    print()
+
+    # Load SEGA DB
+    sega_db = {}
     if USE_ENGLISH_TITLES:
-        total = en_hits + en_misses
-        print(f"  English lookup : {en_hits}/{total} matched  ({en_misses} romanized)")
-    print()
-    if DRY_RUN:
-        print(f"  DRY RUN -- {len(results)} folder(s) would be processed.")
-        print("  Set DRY_RUN = False to apply changes.")
-    else:
-        print(f"  Done!  Moved: {moved}  |  Skipped: {skipped}  |  Errors: {errors}")
-        if moved:
-            print(f"  Output: {output_base}")
+        sega_db = load_sega_db(cache_path)
 
+    # Build plan (read-only scan)
+    results, en_hits, en_misses = build_plan(root, output_base, sega_db)
+
+    if not results:
+        print("  No song folders found (looking for dirs containing maidata.txt).")
+        input("\nPress Enter to exit...")
+        return
+
+    # Always show preview first
+    print_preview(results, en_hits, en_misses)
+
+    # Ask for confirmation
+    print("  Apply changes? All folders will be moved into:", output_base)
+    try:
+        answer = input("  > [y/N] : ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\n  Cancelled.")
+        sys.exit(0)
+
+    if answer not in ("y", "yes"):
+        print("\n  No changes made.")
+        input("Press Enter to exit...")
+        return
+
+    # Execute
+    apply_plan(results)
+    print(f"\n  Output folder: {output_base}")
     input("\nPress Enter to exit...")
 
 
